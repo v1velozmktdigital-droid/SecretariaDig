@@ -872,13 +872,13 @@ function BlockedScreen({ establishment, onSignOut }) {
 const NAV_ITEMS = [
   { key: "dashboard", label: "Painel", icon: LayoutGrid },
   { key: "agenda", label: "Agenda", icon: Calendar },
-  { key: "equipe", label: "Equipe", icon: UserCog },
   { key: "horarios", label: "Horários", icon: Clock },
-  { key: "clientes", label: "Clientes", icon: Users },
   { key: "servicos", label: "Serviços", icon: Scissors },
-  { key: "fidelidade", label: "Fidelidade", icon: Award },
   { key: "financeiro", label: "Financeiro", icon: Wallet },
   { key: "compras", label: "Compras", icon: ShoppingBag },
+  { key: "fidelidade", label: "Fidelidade", icon: Award },
+  { key: "clientes", label: "Clientes", icon: Users },
+  { key: "equipe", label: "Equipe", icon: UserCog },
   { key: "config", label: "Ajustes", icon: Settings },
 ];
 
@@ -889,7 +889,7 @@ function AdminShell({ platformName, page, setPage, onExitToClientDemo, onSignOut
   function changeNavMode(mode) {
     setNavMode(mode);
   }
-  function navigate(key) { setPage(key); if (window.innerWidth < 900) changeNavMode("bottom"); }
+  function navigate(key) { window.scrollTo({ top: 0, behavior: "instant" }); setPage(key); if (window.innerWidth < 900) changeNavMode("bottom"); }
   return (
     <div className={`font-body ${navMode === "side" ? "nav-side-open" : "nav-bottom"}`} style={{ minHeight: "100%", background: COLORS.bg, color: COLORS.ink, paddingBottom: 58 }}>
       <aside className="admin-desktop-sidebar" style={{
@@ -961,7 +961,7 @@ function AdminShell({ platformName, page, setPage, onExitToClientDemo, onSignOut
             return (
               <button
                 key={item.key}
-                onClick={() => setPage(item.key)}
+                onClick={() => navigate(item.key)}
                 className="sd-btn"
                 style={{
                   flex: "1 0 auto", minWidth: 52, background: "transparent", border: "none", cursor: "pointer",
@@ -1092,6 +1092,11 @@ function Dashboard({ data, setPage, announcements = [], establishment }) {
   const { appointments, clients, shoppingList, services, timeOff = [], transactions = [] } = data;
   const todayIsoStr = todayIso();
   const tomorrowIso = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+  const afterWork = new Date().getHours() >= 19;
+  const targetDate = useMemo(() => {
+    const start = afterWork ? tomorrowIso : todayIsoStr;
+    return appointments.filter(a => a.status !== "cancelado" && a.data >= start).map(a => a.data).sort()[0] || start;
+  }, [appointments, afterWork, tomorrowIso, todayIsoStr]);
   // A oração abre na frente sempre que o painel inicial é aberto.
   // Depois de "Amém", permanece disponível no cartão para abrir novamente.
   const prayerKey = `sd_prayer_seen_${establishment?.id || "default"}_${todayIso()}`;
@@ -1108,13 +1113,13 @@ function Dashboard({ data, setPage, announcements = [], establishment }) {
   }, [clients, todayIsoStr]);
 
   const todaySummary = useMemo(() => {
-    const todayAppts = appointments.filter(a => a.data === todayIsoStr && a.status !== "cancelado");
+    const todayAppts = appointments.filter(a => a.data === targetDate && a.status !== "cancelado");
     const unconfirmed = todayAppts.filter(a => a.status === "aguardando").length;
     const dayStart = new Date(todayIsoStr + "T00:00:00");
     const dayEnd = new Date(todayIsoStr + "T23:59:59.999");
     const blocks = timeOff.filter(t => new Date(t.startAt) <= dayEnd && new Date(t.endAt) >= dayStart).length;
     return { total: todayAppts.length, unconfirmed, blocks };
-  }, [appointments, timeOff, todayIsoStr]);
+  }, [appointments, timeOff, targetDate]);
 
   const alerts = useMemo(() => {
     const list = [];
@@ -1142,10 +1147,10 @@ function Dashboard({ data, setPage, announcements = [], establishment }) {
   const toneBg = { amber: COLORS.amberSoft, primary: COLORS.primarySoft, terra: COLORS.terraSoft, gold: COLORS.goldSoft };
 
   const quick = [
-    { key: "agenda", label: "Atendimentos", icon: Calendar, value: todaySummary.total, sub: "de hoje" },
-    { key: "horarios", label: "Compromissos", icon: Clock, value: todaySummary.blocks, sub: "de hoje" },
+    { key: "agenda", label: "Atendimentos", icon: Calendar, value: todaySummary.total, sub: targetDate === todayIsoStr ? "de hoje" : `de ${fmtDate(targetDate)}` },
+    { key: "agenda", label: "Próximos atendimentos", icon: Clock, value: appointments.filter(a=>a.status!=="cancelado"&&a.data===targetDate).length, sub: targetDate === todayIsoStr ? "de hoje" : fmtDate(targetDate) },
     { key: "financeiro", label: "Ganhos", icon: Wallet, value: fmtBRL(computeEarnings(appointments, services, "day")), sub: "estimados hoje" },
-    { key: "gastos", page: "financeiro", label: "Gastos", icon: ShoppingBag, value: fmtBRL(transactions.filter(t => t.tipo === "saida" && t.pago && t.data === todayIsoStr).reduce((s,t) => s + t.valor, 0)), sub: "de hoje" },
+    { key: "agenda", label: "Confirmações", icon: Bell, value: todaySummary.unconfirmed, sub: `pendentes ${targetDate === todayIsoStr ? "hoje" : `para ${fmtDate(targetDate)}`}` },
   ];
 
   return (
@@ -1177,10 +1182,10 @@ function Dashboard({ data, setPage, announcements = [], establishment }) {
         </div>
       )}
 
-      <SectionLabel>Hoje</SectionLabel>
+      <SectionLabel>{targetDate === todayIsoStr ? "Hoje" : "Próximo atendimento"}</SectionLabel>
       <Card style={{ padding: "14px 16px", marginBottom: 18 }}>
         <div style={{ fontSize: 13.5, color: COLORS.ink, lineHeight: 1.6 }}>
-          Hoje você tem <strong>{todaySummary.total}</strong> agendamento{todaySummary.total !== 1 ? "s" : ""}
+          {targetDate === todayIsoStr ? "Hoje" : `Em ${fmtDate(targetDate)}`} você tem <strong>{todaySummary.total}</strong> agendamento{todaySummary.total !== 1 ? "s" : ""}
           {todaySummary.unconfirmed > 0 && <> · <span style={{ color: COLORS.amber, fontWeight: 700 }}>{todaySummary.unconfirmed} não confirmado{todaySummary.unconfirmed !== 1 ? "s" : ""}</span></>}
           {todaysBirthdays.length > 0 && <> · <span style={{ color: COLORS.accent, fontWeight: 700 }}>é aniversário de {todaysBirthdays.map(c => c.nome.split(" ")[0]).join(", ")} 🎂</span></>}
         </div>
@@ -2620,7 +2625,7 @@ function Servicos({ data, onAdd, onUpdate, onRemove }) {
             {existingCategories.map(c => <option key={c} value={c} />)}
           </datalist>
           <div style={{ display: "flex", gap: 10 }}>
-            <input placeholder="Duração (min)" type="number" value={form.duracao} onChange={e => setForm(f => ({ ...f, duracao: e.target.value }))} style={fieldStyle} />
+            <input placeholder="Duração (min)" type="number" min="5" step="5" value={form.duracao} onChange={e => setForm(f => ({ ...f, duracao: e.target.value }))} style={fieldStyle} />
             <input placeholder="Preço (R$)" type="number" value={form.preco} onChange={e => setForm(f => ({ ...f, preco: e.target.value }))} style={fieldStyle} />
           </div>
           <PrimaryButton type="submit" loading={saving} style={{ marginTop: 2 }}>
